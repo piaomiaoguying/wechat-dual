@@ -277,11 +277,25 @@ replace_icon_color() {
 
     # 对iconset中的所有PNG文件进行颜色替换
     print_info "处理图标分辨率..."
+
+    # 确保图标文件对原用户可写（sudo 下 iconutil 解压的文件属于 root）
+    chmod -R u+w "$iconset_dir" 2>/dev/null
+    if [ -n "$SUDO_USER" ]; then
+        chown -R "$SUDO_USER" "$iconset_dir" 2>/dev/null
+    fi
+
     local processed_count=0
     for png_file in "$iconset_dir"/*.png; do
         if [ -f "$png_file" ]; then
-            if python3 "$color_script" "$png_file" "$png_file" 2>/dev/null; then
-                processed_count=$((processed_count + 1))
+            # 使用原始用户身份运行 Python 脚本，避免 sudo 下找不到 Pillow 等依赖
+            if [ -n "$SUDO_USER" ]; then
+                if sudo -u "$SUDO_USER" python3 "$color_script" "$png_file" "$png_file"; then
+                    processed_count=$((processed_count + 1))
+                fi
+            else
+                if python3 "$color_script" "$png_file" "$png_file"; then
+                    processed_count=$((processed_count + 1))
+                fi
             fi
         fi
     done
