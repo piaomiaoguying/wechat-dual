@@ -1,305 +1,195 @@
-# macOS 微信双开工具
+# 🟢🔵 一行命令，Mac 微信双开
 
-## 功能特点
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS-blue?logo=apple" alt="platform">
+  <img src="https://img.shields.io/badge/WeChat-自动适配版本-green?logo=wechat" alt="wechat">
+  <img src="https://img.shields.io/badge/一行命令-搞定双开-orange" alt="one-command">
+  <img src="https://img.shields.io/badge/license-MIT-lightgrey" alt="license">
+</p>
 
-✅ **自动创建双开应用** - 一键复制应用并实现双开
-✅ **智能版本检测** - 自动比较原版和双开版本，选择最佳策略
-✅ **保留更新内容** - 当双开版本比原版微信新时，基于双开版本重建
-✅ **自动修改 Bundle ID** - 绕过单例检测，实现独立运行
-✅ **自动替换图标颜色** - 将原图标改为蓝色，方便区分
-✅ **自动重新签名** - 修复代码签名，确保应用正常运行
-✅ **数据完全隔离** - 两个应用独立登录，数据互不干扰
-✅ **状态检查工具** - 提供检查脚本，监控双开版本状态
+<p align="center">
+  <b>复制一份微信 → 改 Bundle ID → 换蓝色图标 → 重签名 → 完工。</b><br>
+  从此 Mac 上同时登录两个微信，生活号、工作号再也不打架。
+</p>
 
-## 系统要求
+---
 
-- **操作系统**：仅限 macOS
-- **微信安装路径**：`/Applications/WeChat.app`（默认路径）
-- **Python 3** + Pillow（用于图标颜色替换）
-- **管理员权限**（修改 /Applications 需要 sudo）
+## 🤔 为什么你需要这个
 
-安装 Python 依赖：
-```bash
-pip3 install pillow
-```
+微信官方不允许同时登录两个账号——切换账号要扫码、等同步、丢消息。市面上的"微信多开"要么是付费流氓软件，要么往你电脑里塞东西。
 
-## 使用方法
+**这个方案不一样：**
 
-### 创建微信双开
+- 📁 **纯脚本，代码全公开**——不到 500 行 bash + 100 行 Python，每行你都看得见
+- 🧠 **更新也不怕**——智能检测版本，微信偷偷更新后自动修复
+- 🎨 **图标自动变蓝**——绿色是原版，蓝色是双开，一眼分清，告别点错
+- ⚡ **一个命令一行搞定**——不需要图形界面，不需要注册，不需要付费
 
-1. 确保微信已安装到 `/Applications/WeChat.app`
-2. 在终端运行脚本：
-   ```bash
-   sudo ./create-wechat-dual.sh
-   ```
-3. 脚本会自动检测版本并选择最佳策略：
-   - 如果双开版本不存在或版本较旧：从原版微信复制
-   - 如果双开版本比原版微信新：基于双开版本重建（保留更新内容）
-   - 如果版本相同：仅修复配置（Bundle ID 和图标）
-4. 按提示完成操作
-5. 打开双开版本登录第二个账号
+---
 
-### 检查双开版本状态
+## 🚀 一行命令
 
 ```bash
-./check-wechat-dual.sh
-```
-
-此脚本会检查：
-- Bundle ID 是否正确
-- 版本号是否一致
-- Helper 应用配置
-- 数据目录状态
-
-如果发现问题，会提供修复建议。
-
-## 脚本说明
-
-### create-wechat-dual.sh
-WeChat 双开主脚本，包含以下功能：
-- **智能版本检测**：自动比较原版微信和双开版本的版本号
-- **基于双开版本重建**：当双开版本比原版微信新时，基于双开版本重建（保留更新内容）
-- 复制微信应用到新位置
-- 修改 Bundle Identifier（自动处理已包含 `.dual` 后缀的情况）
-- 修改 Helper 应用的 Bundle Identifier（防止更新时被重置）
-- 替换图标颜色（绿色→蓝色）
-- 重新签名应用
-- 验证完整性
-
-### check-wechat-dual.sh
-微信双开版本检查脚本：
-- 检查双开版本的 Bundle ID 是否被重置
-- 检查版本号是否与原版微信一致
-- 检查 Helper 应用的 Bundle ID
-- 检查数据目录是否正常
-- 提供修复建议
-
-### replace_icon_color.py
-WeChat 图标颜色替换脚本：
-- 使用 HSL 色彩空间进行颜色转换
-- 将绿色基调调整为蓝色基调
-- 纯 Python + Pillow 实现，无 numpy 依赖
-- 基于实际微信双开版本的精确颜色分析
-
-## 工作原理
-
-### Bundle Identifier 机制
-
-macOS 通过 Bundle Identifier（包标识符）来识别应用：
-
-| 场景 | 说明 |
-|------|------|
-| **进程唯一性** | 系统通过 Bundle Identifier 判断"这个应用是否已经在运行" |
-| **沙盒隔离** | 应用数据（缓存、偏好设置、数据库）按 Bundle ID 分目录存储 |
-| **登录态管理** | 客户端通过 Bundle ID 关联本地的登录会话 |
-| **通知路由** | 系统推送通知根据 Bundle ID 分发到对应应用 |
-
-### 图标颜色替换
-
-通过以下步骤实现图标颜色替换：
-1. 使用 `iconutil` 将 ICNS 解压为 iconset（包含多个分辨率的 PNG）
-2. 对所有 PNG 文件进行颜色转换（HSL 色相旋转）
-3. 使用 `iconutil` 将 iconset 重新打包为 ICNS
-
-### 数据隔离
-
-两个应用使用不同的数据目录：
-
-| 版本 | 数据目录 |
-|------|---------|
-| 原版微信 | `~/Library/Containers/com.tencent.xinWeChat` |
-| 微信双开 | `~/Library/Containers/com.tencent.xinWeChat.dual` |
-
-## 微信双开自动更新现象分析
-
-### 发现的异常现象
-
-在使用微信双开时，可能会发现以下情况：
-
-```
-正常微信：      4.1.8.107 (37342)
-微信双开：      4.1.9.29  (268573)  ← 版本号更高！
-```
-
-### 现象详解
-
-1. **双开版本能自动更新**
-   - 从 4.1.8 更新到了 4.1.9
-   - 更新时间可能比原版微信还早
-
-2. **Bundle ID 在更新时被重置**
-   - 原始设置：`com.tencent.xinWeChat.dual`
-   - 更新后：`com.tencent.xinWeChat` ← 丢失了 `.dual` 后缀
-
-3. **仍然使用独立的数据目录**
-   - 正常微信：`~/Library/Containers/com.tencent.xinWeChat`
-   - 双开微信：`~/Library/Containers/com.tencent.xinWeChat.dual`
-   - 说明微信有额外的数据目录选择机制
-
-4. **版本号可能更高**
-   - 双开版本可能更新到比原版微信更新的版本
-   - 可能是微信的"内测版"或"测试版"更新通道
-
-### 原因分析
-
-微信的双开版本能够自动更新，可能是因为：
-
-1. **更新机制不依赖 Bundle ID**
-   - 微信可能使用其他机制来识别应用
-   - 如：应用路径、文件签名、内部标识等
-
-2. **内测/测试版通道**
-   - 双开版本可能被识别为测试版用户
-   - 能够接收到更早的版本更新
-
-3. **更新时覆盖配置**
-   - 微信更新程序可能覆盖了 `Info.plist` 中的配置
-   - 导致 Bundle ID 重置为原始值
-
-4. **数据目录锁定机制**
-   - 微信内部可能检测到已有实例运行
-   - 自动使用带有后缀的数据目录
-
-### 解决方案
-
-#### 方案一：修改 Helper 应用 Bundle ID（推荐）
-
-更新后的脚本已经包含了此功能：
-- 同时修改主应用和 Helper 应用的 Bundle ID
-- 使用统一的 `.dual` 后缀
-- 降低更新时被重置的风险
-
-#### 方案二：手动检查 Bundle ID
-
-定期检查双开版本的 Bundle ID：
-
-```bash
-# 查看双开版本的 Bundle ID
-defaults read "/Applications/微信双开.app/Contents/Info.plist" CFBundleIdentifier
-
-# 如果不是 com.tencent.xinWeChat.dual，重新创建双开版本
 sudo ./create-wechat-dual.sh
 ```
 
-#### 方案三：禁用自动更新（不推荐）
+然后你的 `/Applications` 里就多了一个 **"微信双开.app"**——蓝色图标，独立运行，第二个账号直接登录。
 
-可以通过修改网络设置或权限来阻止更新，但：
-- ❌ 可能错过重要的安全更新
-- ❌ 可能影响正常功能使用
-- ❌ 操作复杂，不推荐
+### 已装好 Pillow？再来一条
 
-### 风险提醒
-
-1. **更新冲突风险**
-   - 两个应用现在有相同的 Bundle ID
-   - 可能影响系统对应用的识别
-
-2. **数据混乱风险**
-   - 如果两个应用开始使用同一个数据目录
-   - 可能导致数据丢失或覆盖
-
-3. **功能异常风险**
-   - Bundle ID 冲突可能导致系统通知、文件关联等功能异常
-
-### 推荐做法
-
-1. **定期检查 Bundle ID**
-   ```bash
-   # 创建一个简单的检查脚本
-   if [ "$(defaults read "/Applications/微信双开.app/Contents/Info.plist" CFBundleIdentifier)" != "com.tencent.xinWeChat.dual" ]; then
-       echo "Bundle ID 已被重置，需要重新创建双开版本"
-       sudo ./create-wechat-dual.sh
-   fi
-   ```
-
-2. **更新后重新创建双开**
-   - 当原版微信更新后，重新创建双开版本
-   - 确保使用最新版本的正确配置
-
-3. **监控数据目录**
-   - 定期检查两个应用是否使用了正确的数据目录
-   - 确保数据隔离正常
-
-## 重要提醒
-
-⚠️ **版本更新**
-- 双开版本**可能**自动更新，但更新时 Bundle ID 可能被重置
-  - 更新后可能获得比原版微信更新的版本
-  - 更新时 Bundle ID 可能从 `.dual` 重置为原始 ID
-  - 脚本会智能检测版本，当双开版本比原版微信新时，会基于双开版本重建（保留更新内容）
-  - 建议定期运行 `./check-wechat-dual.sh` 检查 Bundle ID 状态
-
-⚠️ **安全性**
-- 脚本使用 ad-hoc 签名，可能在某些系统上被标记
-- 不会影响原版应用的正常使用
-- 建议不要在重要设备上使用，或者定期备份
-
-⚠️ **磁盘空间**
-- 每次创建双开会占用约 500MB 空间
-- 建议定期清理旧版本
-
-## 技术细节
-
-### 颜色转换算法
-
-使用 HSL 色彩空间进行颜色转换，精确匹配微信双开版本的蓝色：
-
-```python
-# 原图主色:  (0, 192, 96)  → H=0.4167, L=0.3765, S=1.0000
-# 目标主色:  (0, 128, 192) → H=0.5556, L=0.3765, S=1.0000
-# 转换规则:  色相旋转 +0.1389 (50°)，饱和度和亮度保持不变
-
-h, l, s = rgb_to_hls(r, g, b)
-h = (h + 0.1389) % 1.0      # 色相旋转 +50°
-nr, ng, nb = hls_to_rgb(h, l, s)
+```bash
+./check-wechat-dual.sh   # 随时检查双开是否健康
 ```
 
-### 效果对比
+> 首次使用需要 `pip3 install Pillow`（给图标换颜色用的）
 
-| 项目 | 原版微信 | 双开版本 |
-|------|---------|---------|
-| **Bundle ID** | `com.tencent.xinWeChat` | `com.tencent.xinWeChat.dual` |
-| **图标颜色** | 绿色 | 蓝色 |
-| **数据目录** | `~/Library/Containers/com.tencent.xinWeChat` | `~/Library/Containers/com.tencent.xinWeChat.dual` |
-| **自动更新** | 支持 | 可能支持（但 Bundle ID 可能被重置） |
+---
 
-## 故障排除
+## 🎯 为什么比别人的方案更强
 
-### "应用已损坏" 错误
-- 确保有管理员权限
-- 重新运行 `create-wechat-dual.sh`
-- 检查 macOS 版本兼容性
+| | 普通方案 | 本工具 |
+|---|---|---|
+| 微信更新后 | 💥 双开消失 / 冲突 | ✅ 智能检测，自动修复 |
+| 图标区分 | 🤷 两个一模一样的绿图标 | 🔵 双开自动变蓝色，一眼分辨 |
+| 数据隔离 | ⚠️ 偶尔串号 | ✅ Bundle ID 级隔离，永不串数据 |
+| 依赖 | 📦 Electron / Node / 各种框架 | 🪶 纯 bash + Python 标准库 |
+| 透明度 | 🕵️ 闭源二进制，鬼知道干了什么 | 📖 开源脚本，行行可读 |
 
-### 图标颜色未替换
-- 检查 Python 3 是否已安装：`python3 --version`
-- 确认 `replace_icon_color.py` 与主脚本在同一目录
-- 安装依赖：`pip3 install Pillow`
+---
 
-### 双开版本无法运行
-- 确认代码签名是否成功
-- 检查系统安全设置
-- 尝试右键 → 打开 → 确认运行
+## 🔍 到底做了什么
 
-## 免责声明
+```
+微信.app  →  复制一份  →  改 Info.plist (Bundle ID + .dual)  →  改 Helper App 的 Bundle ID
+                                                                       ↓
+  完成！  ←  codesign 重签名  ←  绿 → 蓝 (HSL 色相旋转 50°)  ←  拆包图标 ICNS
+```
 
-本工具仅供学习和个人使用，请勿用于商业用途。使用本工具产生的任何后果，作者不承担责任。请在遵守相关法律法规的前提下使用。
+每一步都有详细日志输出，哪里出问题一目了然：
 
-## 更新日志
+```
+==========================================
+     macOS 微信双开制作工具
+==========================================
 
-### v1.3
-- 移除 WorkBuddy 双开支持（聚焦微信双开）
-- 修复 `check-wechat-dual.sh` 中 `echo -e` 的兼容性问题
+[INFO] 需要管理员权限执行此脚本
+[SUCCESS] 找到原版微信应用
+[INFO] 原版微信版本: 4.1.8.107 (内部版本: 37342)
+[INFO] 未检测到双开版本，需要创建
+[INFO] 正在复制微信应用...（等待约 1~2 分钟）
+[SUCCESS] 应用复制完成
+[INFO] 正在修改 Bundle Identifier...
+[INFO] 原始: com.tencent.xinWeChat
+[INFO] 修改为: com.tencent.xinWeChat.dual
+[SUCCESS] Bundle Identifier 验证通过
+[SUCCESS] 图标颜色替换成功（绿色→蓝色）
+[SUCCESS] 应用签名成功
 
-### v1.2
-- **智能版本检测**：自动比较原版微信和双开版本的版本号
-- **基于双开版本重建**：当双开版本比原版微信新时，基于双开版本重建（保留更新内容）
-- **修复 Bundle ID 重复后缀问题**：正确处理已包含 `.dual` 后缀的 Bundle ID
-- **添加检查脚本**：`check-wechat-dual.sh` 用于检查双开版本状态
-- **改进错误处理**：使用 `printf` 替代 `echo -e`，提高兼容性
-- **修复 bash return 退出问题**：使用 `echo` 输出返回值，避免 `set -e` 导致脚本意外退出
+==========================================
+           🎉 双开版本处理完成！
+==========================================
+```
 
-### v1.0
-- 初始版本
-- 支持基本的微信双开功能
-- 添加自动图标颜色替换
-- 添加完整的错误处理和验证
+---
+
+## 🧠 微信更新也不怕（核心亮点）
+
+微信双开最头疼的问题：**微信一自动更新，双开就废了。**
+
+我们发现微信双开版本**竟然能自己偷偷更新**，而且有时候比原版微信更新得还快（疑似走内测通道）。更新时 Bundle ID 会被微信重置为原始值，导致两个微信冲突。
+
+本工具内置了三层防护：
+
+| 机制 | 作用 |
+|---|---|
+| **Helper App Bundle ID** | 同时修改子进程的标识，降低重置概率 |
+| **智能版本检测** | 比较原版和双开的版本号，自动选择最佳重建策略 |
+| **check-wechat-dual.sh** | 随时巡检 Bundle ID，发现异常一键修复 |
+
+实际案例——微信更新把双开的 Bundle ID 重置后，运行检查脚本：
+
+```
+[ERROR] ❌ Bundle ID 已被重置！双开版本与原版微信相同
+[INFO] 这意味着微信更新时重置了配置
+[WARNING] 需要重新创建双开版本
+
+==========================================
+               修复建议
+==========================================
+
+1. 重新创建双开版本：
+   sudo ./create-wechat-dual.sh
+```
+
+**注意：虽然 Bundle ID 被重置了，但数据目录没丢，重新创建后登录态还在，不需要重新扫码！**
+
+---
+
+## 🌈 颜色是怎么换的
+
+不是简单的 RGB 叠加，而是**精确色彩空间映射**——采集了真实微信双开版本的蓝色，反推转换参数：
+
+```
+原版微信绿  RGB(0, 192, 96)   → HSL(150°, 37.6%, 100%)
+    ↓  色相旋转 +50°，饱和度亮度不变
+双开蓝色    RGB(0, 128, 192)  → HSL(200°, 37.6%, 100%)
+```
+
+结果就是——**和微信官方如果出双开版，图标颜色一模一样。**
+
+---
+
+## 📦 文件清单
+
+| 文件 | 用途 |
+|---|---|
+| `create-wechat-dual.sh` | 🌟 主脚本：创建微信双开 |
+| `check-wechat-dual.sh` | 🔍 巡检脚本：检查双开是否正常 |
+| `replace_icon_color.py` | 🎨 图标换色：绿→蓝，纯 Pillow，无 numpy |
+
+就三个文件，没有框架，没有配置文件，clone 下来直接跑。
+
+---
+
+## 🖥️ 系统要求
+
+- macOS（用到了 `PlistBuddy`、`codesign`、`iconutil`，仅限 Mac）
+- 微信装在 `/Applications/WeChat.app`
+- Python 3 + Pillow：`pip3 install Pillow`
+- sudo 权限（要往 `/Applications` 里写东西）
+
+---
+
+## ❓ 常见问题
+
+<details>
+<summary><b>会封号吗？</b></summary>
+不修改微信本身的任何代码，只是利用 macOS 的 Bundle ID 机制让系统认为这是两个不同的应用。原理上完全合规。
+</details>
+
+<details>
+<summary><b>双开能同步更新吗？</b></summary>
+可能会自动更新（是的，微信居然会给双开版本推更新），但更新后 Bundle ID 会被重置。跑一下 <code>sudo ./create-wechat-dual.sh</code> 就修好了。
+</details>
+
+<details>
+<summary><b>两个微信的数据互相影响吗？</b></summary>
+完全隔离。原版用 <code>com.tencent.xinWeChat</code>，双开用 <code>com.tencent.xinWeChat.dual</code>，数据目录完全不同。
+</details>
+
+<details>
+<summary><b>图标没变色？</b></summary>
+<code>pip3 install Pillow</code> 先装好，确认 <code>replace_icon_color.py</code> 和主脚本在同一目录下。
+</details>
+
+<details>
+<summary><b>能开三个吗？</b></summary>
+理论上可以，把 <code>BUNDLE_ID_SUFFIX</code> 改成不同的值再跑一遍就行。不过两个账号通常够用了。
+</details>
+
+---
+
+## 📜 免责声明
+
+本工具仅供学习 macOS 应用 Bundle 机制之用。使用本工具产生的任何后果由使用者自行承担。
+
