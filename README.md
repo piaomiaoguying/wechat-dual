@@ -41,8 +41,6 @@ sudo ./create-wechat-dual.sh
 ./check-wechat-dual.sh   # 随时检查双开是否健康
 ```
 
-> 首次使用需要 `pip3 install Pillow`（给图标换颜色用的）
-
 ---
 
 ## 🎯 为什么比别人的方案更强
@@ -155,7 +153,7 @@ sudo ./create-wechat-dual.sh
 
 - macOS（用到了 `PlistBuddy`、`codesign`、`iconutil`，仅限 Mac）
 - 微信装在 `/Applications/WeChat.app`
-- Python 3 + Pillow：`pip3 install Pillow`
+- Python 3（Pillow 会在首次运行时自动安装）
 - sudo 权限（要往 `/Applications` 里写东西）
 
 ---
@@ -179,7 +177,7 @@ sudo ./create-wechat-dual.sh
 
 <details>
 <summary><b>图标没变色？</b></summary>
-<code>pip3 install Pillow</code> 先装好，确认 <code>replace_icon_color.py</code> 和主脚本在同一目录下。
+脚本会自动检测并安装 Pillow。如果自动安装失败，手动执行 <code>pip3 install Pillow</code>，再重新运行主脚本即可。
 </details>
 
 <details>

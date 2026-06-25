@@ -268,6 +268,37 @@ replace_icon_color() {
         return 0
     fi
 
+    # 检查并安装 Pillow 依赖
+    local pip_install_ok=false
+    if python3 -c "from PIL import Image" 2>/dev/null; then
+        pip_install_ok=true
+    elif [ -n "$SUDO_USER" ]; then
+        # sudo 环境下，用原用户身份检查并安装
+        if sudo -u "$SUDO_USER" python3 -c "from PIL import Image" 2>/dev/null; then
+            pip_install_ok=true
+        else
+            print_info "检测到 Pillow 未安装，正在自动安装..."
+            if sudo -u "$SUDO_USER" pip3 install Pillow -q 2>&1; then
+                print_success "Pillow 安装成功"
+                pip_install_ok=true
+            else
+                print_warning "Pillow 安装失败，跳过图标颜色替换"
+                print_info "可手动执行: pip3 install Pillow"
+                return 0
+            fi
+        fi
+    else
+        print_info "检测到 Pillow 未安装，正在自动安装..."
+        if pip3 install Pillow -q 2>&1; then
+            print_success "Pillow 安装成功"
+            pip_install_ok=true
+        else
+            print_warning "Pillow 安装失败，跳过图标颜色替换"
+            print_info "可手动执行: pip3 install Pillow"
+            return 0
+        fi
+    fi
+
     # 使用iconutil将ICNS解压为iconset
     if ! iconutil --convert iconset "$original_icon" --output "$iconset_dir" 2>/dev/null; then
         print_warning "图标解压失败，跳过图标颜色替换"
