@@ -53,25 +53,32 @@ def replace_icon_color(input_path, output_path):
 
     微信图标本身是扁平色块，同色像素极多，因此对颜色做记忆化缓存
     （实测 1024x1024 图标约 1900 种颜色），避免逐像素重复计算 HLS。
+
+    像素读写走 tobytes/frombytes，不用已废弃的 getdata/putdata；
+    图标统一为 RGBA，每 4 字节一个像素。
     """
     try:
         img = Image.open(input_path).convert("RGBA")
-        data = list(img.getdata())
+        raw = img.tobytes()
 
         cache = {}
-        out = []
-        for r, g, b, a in data:
+        out = bytearray(len(raw))
+        for i in range(0, len(raw), 4):
+            r, g, b, a = raw[i], raw[i + 1], raw[i + 2], raw[i + 3]
             if a == 0:
-                out.append((r, g, b, a))
+                out[i:i + 4] = raw[i:i + 4]
                 continue
             key = (r, g, b)
             shifted = cache.get(key)
             if shifted is None:
                 shifted = _shift_pixel(r, g, b)
                 cache[key] = shifted
-            out.append((shifted[0], shifted[1], shifted[2], a))
+            out[i] = shifted[0]
+            out[i + 1] = shifted[1]
+            out[i + 2] = shifted[2]
+            out[i + 3] = a
 
-        img.putdata(out)
+        img.frombytes(bytes(out))
 
         # 统一按 PNG 保存，后续由 iconutil / actool 打包
         target = output_path
@@ -157,7 +164,9 @@ def probe_icon(icon_path):
         return 1
 
     counter = Counter()
-    for r, g, b, a in img.getdata():
+    raw = img.tobytes()
+    for i in range(0, len(raw), 4):
+        r, g, b, a = raw[i], raw[i + 1], raw[i + 2], raw[i + 3]
         if a > 200 and not (r > 240 and g > 240 and b > 240):
             counter[(r, g, b)] += 1
 

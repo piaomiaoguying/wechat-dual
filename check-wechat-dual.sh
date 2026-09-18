@@ -123,6 +123,12 @@ check_icon_color() {
         else
             print_success "Assets.car 已重建"
         fi
+    elif [ -f "$ORIGINAL_APP/Contents/Resources/Assets.car" ]; then
+        # 原版带资源目录，双开却没有，说明重建失败走了回退分支。
+        # 当前靠 ICNS 也能显示正确颜色，但微信一旦自行补回该文件就会变绿。
+        print_warning "原版微信含 Assets.car，双开缺失（上次重建失败已回退到 ICNS）"
+        print_info "重新运行 create-wechat-dual.sh 会重建该文件"
+        report_issue
     else
         print_info "应用不含 Assets.car，系统将使用 AppIcon.icns"
     fi

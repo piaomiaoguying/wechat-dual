@@ -294,21 +294,22 @@ replace_icon_color() {
     fi
 
     # 2) 写回 Assets.car（系统实际读取的图标来源）
-    if [ -f "$resources/Assets.car" ]; then
+    # 以原版微信为准判断是否需要重建：双开是原版的复制品，原版带资源目录
+    # 双开就该有。若只看双开自身，一旦上次运行走了回退分支删掉了该文件，
+    # 后续运行会因文件不存在而永远跳过重建。
+    if [ -f "$ORIGINAL_APP/Contents/Resources/Assets.car" ]; then
         local car_dir="$temp_dir/car"
         mkdir -p "$car_dir"
 
-        if [ "$(compile_assets_car "$iconset_dir" "$car_dir")" = "ok" ]; then
-            if sudo cp "$car_dir/car/Assets.car" "$resources/Assets.car"; then
-                print_success "Assets.car 已重建"
-            else
-                print_warning "Assets.car 写入失败，系统将回退使用 ICNS"
-                failed=1
-            fi
+        local new_car
+        new_car="$(compile_assets_car "$iconset_dir" "$car_dir")"
+
+        if [ -n "$new_car" ] && sudo cp "$new_car" "$resources/Assets.car"; then
+            print_success "Assets.car 已重建"
         else
             print_warning "Assets.car 重建失败，移除该文件以回退使用 ICNS"
             if sudo rm -f "$resources/Assets.car"; then
-                print_info "已移除 Assets.car"
+                print_info "已移除 Assets.car，系统改用 AppIcon.icns"
             fi
         fi
     fi
@@ -373,38 +374,31 @@ register_with_launch_services() {
         -f "$app" >/dev/null 2>&1 || true
 }
 
-# 清理启动台中残留的重复条目
-# 重复创建双开时，同一 Bundle ID 会在启动台数据库里留下多条记录
-# （例如以临时名称 WeChat-Dual-Temp 注册过的旧条目），表现为启动台里
-# 出现名称/图标不一致的多个微信。重复条目未必真的显示，但保留会让
-# 启动台出现异常，且条目名称取决于注册时机，因此统一清理。
+# 清理启动台中残留的失效条目
+# 复制阶段会短暂生成 WeChat-Dual-Temp.app，Dock 会为它建立启动台条目；
+# 应用改名后该条目指向的路径已不存在，会表现为启动台里出现名称错误的
+# 重复图标。按书签还原路径、只删除磁盘上确实不存在的条目，避免误删。
 clean_launchpad_entries() {
     local bundle_id="$1"
-    local u
-    u="$(real_user)"
 
     if ! command -v sqlite3 >/dev/null 2>&1; then
         return 0
     fi
 
-    local user_dir
-    user_dir="$(sudo -u "$u" getconf DARWIN_USER_DIR 2>/dev/null)"
-    [ -n "$user_dir" ] || return 0
-
-    local db="${user_dir}com.apple.dock.launchpad/db/db"
+    local db
+    db="$(launchpad_db)" || return 0
     [ -f "$db" ] || return 0
 
-    local dup_count
-    dup_count="$(sudo -u "$u" sqlite3 "file:$db?mode=ro" \
-        "SELECT count(*) FROM apps WHERE bundleid='$bundle_id';" 2>/dev/null || echo 0)"
+    local stale_ids
+    stale_ids="$(stale_launchpad_items "$bundle_id")"
+    [ -n "$stale_ids" ] || return 0
 
-    if [ "${dup_count:-0}" -le 1 ]; then
-        return 0
-    fi
+    local count
+    count="$(printf '%s\n' "$stale_ids" | grep -c .)"
 
-    print_warning "启动台中存在 $dup_count 条双开应用记录，正在清理"
+    print_warning "启动台存在 ${count} 条失效记录，正在清理"
 
-    # Dock 持有数据库连接时直接改写会被覆盖，先停掉 Dock
+    # Dock 持有数据库连接并用内存副本回写，改写前必须先停掉它
     killall Dock >/dev/null 2>&1 || true
     sleep 1
 
@@ -414,22 +408,13 @@ clean_launchpad_entries() {
         return 0
     fi
 
-    # 连同 WAL 中的条目一起提交，避免删除结果被未落盘的旧数据覆盖
-    if ! sudo -u "$u" sqlite3 "$db" <<SQL 2>/dev/null
-PRAGMA wal_checkpoint(TRUNCATE);
-BEGIN;
-DELETE FROM image_cache WHERE item_id IN (SELECT item_id FROM apps WHERE bundleid='$bundle_id');
-DELETE FROM items WHERE parent_id IN (SELECT item_id FROM apps WHERE bundleid='$bundle_id');
-DELETE FROM items WHERE rowid IN (SELECT item_id FROM apps WHERE bundleid='$bundle_id');
-DELETE FROM apps WHERE bundleid='$bundle_id';
-COMMIT;
-SQL
-    then
+    # shellcheck disable=SC2086
+    if ! remove_launchpad_items "$db" $stale_ids; then
         print_warning "启动台记录清理失败，已保留备份: $backup"
         return 0
     fi
 
-    print_success "启动台旧记录已清理，Dock 重启后重建"
+    print_success "启动台失效记录已清理"
 }
 
 # 重命名为最终名称
@@ -522,11 +507,19 @@ main() {
     local bundle_id
     bundle_id="$(read_plist_value "$DUAL_APP/Contents/Info.plist" CFBundleIdentifier)"
 
-    clean_launchpad_entries "$bundle_id"
     register_with_launch_services "$DUAL_APP"
 
     print_info "正在刷新系统图标缓存..."
     refresh_icon_cache
+
+    # 放在图标缓存刷新之后：此时 Dock 已停止，改写启动台数据库不会被它
+    # 用内存副本覆盖回去
+    clean_launchpad_entries "$bundle_id"
+
+    # Dock 由 launchd 托管，退出后会自动重启以重建条目与图标
+    if ! pgrep -x Dock >/dev/null 2>&1; then
+        open -a Dock >/dev/null 2>&1 || true
+    fi
 
     show_summary
     print_success "完成！"

@@ -191,13 +191,18 @@ icon_tooling_ready() {
     return 1
 }
 
+# 以原用户身份运行命令，避免 sudo 下 PATH、依赖、文件属主与登录用户不一致
+run_as_user() {
+    if [ -n "${SUDO_USER:-}" ]; then
+        sudo -u "$SUDO_USER" "$@"
+    else
+        "$@"
+    fi
+}
+
 # 以原用户身份运行图标脚本，避免 sudo 下找不到 Pillow
 run_icon_script() {
-    if [ -n "${SUDO_USER:-}" ]; then
-        sudo -u "$SUDO_USER" python3 "$ICON_SCRIPT" "$@"
-    else
-        python3 "$ICON_SCRIPT" "$@"
-    fi
+    run_as_user python3 "$ICON_SCRIPT" "$@"
 }
 
 # 安装 Pillow
@@ -246,29 +251,39 @@ pack_iconset() {
 }
 
 # 用 actool 把 iconset 编译为 Assets.car（微信 4.x 起系统优先读取该文件）
-# 成功时把 Assets.car 放到 out_dir 并输出 "ok"，失败输出 "fail"
+# 成功时输出生成的 Assets.car 路径，失败输出空
+#
+# 产物在同一用户身份下生成：整个中间目录先交给原用户，再由原用户创建
+# xcassets 与输出目录。若由 root 创建目录、再由原用户写入，会因目录属主
+# 是 root 而写入失败（脚本以 sudo 运行，这一步是实际踩过的坑）。
 compile_assets_car() {
     local iconset_dir="$1"
     local out_dir="$2"
+    local owner
+    owner="$(real_user)"
 
-    [ -d "$iconset_dir" ] || { echo "fail"; return 0; }
-
-    local xcassets="$out_dir/AppIcon.xcassets"
-    if ! run_icon_script --xcassets "$iconset_dir" "$xcassets" >/dev/null 2>&1; then
-        echo "fail"
-        return 0
-    fi
-
-    local car_out="$out_dir/car"
-    rm -rf "$car_out"
-    mkdir -p "$car_out"
+    [ -d "$iconset_dir" ] || return 0
 
     if ! xcrun --find actool >/dev/null 2>&1; then
-        echo "fail"
         return 0
     fi
 
-    if ! xcrun actool \
+    # 交给原用户后，中间产物全部以该身份创建
+    local work_dir="$out_dir/work"
+    rm -rf "$work_dir"
+    mkdir -p "$work_dir"
+    chown -R "$owner" "$out_dir" 2>/dev/null || true
+
+    local xcassets="$work_dir/AppIcon.xcassets"
+    if ! run_icon_script --xcassets "$iconset_dir" "$xcassets" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local car_out="$work_dir/car"
+    mkdir -p "$car_out"
+    chown -R "$owner" "$work_dir" 2>/dev/null || true
+
+    if ! run_as_user xcrun actool \
         --output-format human-readable-text \
         --app-icon AppIcon \
         --output-partial-info-plist "$car_out/partial.plist" \
@@ -277,14 +292,11 @@ compile_assets_car() {
         --platform macosx \
         --compile "$car_out" \
         "$xcassets" >/dev/null 2>&1; then
-        echo "fail"
         return 0
     fi
 
     if [ -f "$car_out/Assets.car" ]; then
-        echo "ok"
-    else
-        echo "fail"
+        printf '%s' "$car_out/Assets.car"
     fi
 }
 
@@ -346,7 +358,92 @@ app_icon_tone() {
     echo "$tone"
 }
 
-# ============ 刷新系统图标缓存 ============
+# ============ 启动台数据库 ============
+# 启动台数据库路径（位于用户的 Darwin 缓存目录下）
+launchpad_db() {
+    local u
+    u="$(real_user)"
+    local user_dir
+    user_dir="$(run_as_user getconf DARWIN_USER_DIR 2>/dev/null)"
+    [ -n "$user_dir" ] || return 1
+    printf '%s' "${user_dir}com.apple.dock.launchpad/db/db"
+}
+
+# 列出某个 Bundle ID 下已失效的启动台条目 ID（书签指向的应用已不在磁盘上）
+# 条目书签以「长度 + UTF-8」编码保存卷内相对路径，据此还原绝对路径后判断存在性。
+stale_launchpad_items() {
+    local bundle_id="$1"
+    local db
+    db="$(launchpad_db)" || return 0
+    [ -f "$db" ] || return 0
+
+    python3 - "$db" "$bundle_id" <<'PY' 2>/dev/null
+import os, re, sqlite3, sys
+
+db_path, bundle_id = sys.argv[1], sys.argv[2]
+con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+
+# 书签中的路径组件：4 字节小端长度 + 4 字节标志 + UTF-8 数据
+def components(blob):
+    b = bytes(blob)
+    out, i = [], 0
+    while i + 8 <= len(b):
+        n = int.from_bytes(b[i:i + 4], "little")
+        if 1 <= n <= 200 and i + 8 + n <= len(b):
+            try:
+                s = b[i + 8:i + 8 + n].decode("utf-8")
+            except UnicodeDecodeError:
+                i += 1
+                continue
+            if re.fullmatch(r"[\w .\-+()一-鿿]+", s):
+                out.append(s)
+                i += 8 + n
+                continue
+        i += 1
+    return out
+
+def volume_relative_path(comps):
+    if not any(c.endswith(".app") for c in comps):
+        return None
+    # 书签中 .app 之后是卷名与卷 UUID 等标识信息，不属于路径，
+    # 因此以最后一个 .app 组件作为路径终点（不依赖卷名，卷重命名也不会失效）
+    names = [i for i, c in enumerate(comps) if c.endswith(".app")]
+    parts = [c for c in comps[:names[-1] + 1] if c != " "]
+    return "/" + "/".join(parts) if parts else None
+
+for item_id, title, blob in con.execute(
+        "SELECT item_id, title, bookmark FROM apps WHERE bundleid=?", (bundle_id,)):
+    if not blob:
+        continue
+    path = volume_relative_path(components(blob))
+    # 还原出的路径不存在，且同名应用也不在常见位置，即视为失效条目
+    if path and not os.path.exists(path):
+        name = os.path.basename(path)
+        if not os.path.exists(f"/Applications/{name}") and \
+           not os.path.exists(f"/System/Applications/{name}"):
+            print(item_id)
+PY
+}
+
+# 删除启动台条目（连带其图标缓存与可能的子级项）
+remove_launchpad_items() {
+    local db="$1"
+    shift
+    local id_list
+    id_list="$(printf '%s,' "$@" | sed 's/,$//')"
+    [ -n "$id_list" ] || return 0
+
+    run_as_user sqlite3 "$db" <<SQL >/dev/null 2>&1
+PRAGMA wal_checkpoint(TRUNCATE);
+BEGIN;
+DELETE FROM image_cache WHERE item_id IN ($id_list);
+DELETE FROM items WHERE parent_id IN ($id_list);
+DELETE FROM items WHERE rowid IN ($id_list);
+DELETE FROM apps WHERE item_id IN ($id_list);
+COMMIT;
+SQL
+}
+
 refresh_icon_cache() {
     local u
     u="$(real_user)"
