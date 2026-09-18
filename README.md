@@ -58,9 +58,9 @@ sudo ./create-wechat-dual.sh
 ## 🔍 到底做了什么
 
 ```
-微信.app  →  复制一份  →  改 Info.plist (Bundle ID + .dual)  →  改 Helper App 的 Bundle ID
-                                                                       ↓
-  完成！  ←  codesign 重签名  ←  绿 → 蓝 (HSL 色相旋转 50°)  ←  拆包图标 ICNS
+微信.app → 复制一份 → 改 Bundle ID (+ .dual) → 改 WeApp 子应用标识 → 改显示名称
+                                                                          ↓
+  完成！ ← 刷新图标缓存 ← codesign 重签名 ← 重建 Assets.car ← 绿→蓝(色相旋转 50°)
 ```
 
 每一步都有详细日志输出，哪里出问题一目了然：
@@ -100,9 +100,9 @@ sudo ./create-wechat-dual.sh
 
 | 机制 | 作用 |
 |---|---|
-| **Helper App Bundle ID** | 同时修改子进程的标识，降低重置概率 |
+| **WeApp 子应用标识** | 同时改写子应用标识，降低重置概率 |
 | **智能版本检测** | 比较原版和双开的版本号，自动选择最佳重建策略 |
-| **check-wechat-dual.sh** | 随时巡检 Bundle ID，发现异常一键修复 |
+| **check-wechat-dual.sh** | 逐项巡检 Bundle ID、图标、名称、签名，发现异常一键修复 |
 
 实际案例——微信更新把双开的 Bundle ID 重置后，运行检查脚本：
 
@@ -143,9 +143,10 @@ sudo ./create-wechat-dual.sh
 |---|---|
 | `create-wechat-dual.sh` | 🌟 主脚本：创建微信双开 |
 | `check-wechat-dual.sh` | 🔍 巡检脚本：检查双开是否正常 |
+| `wechat-dual-common.sh` | 🧩 公共配置与工具函数 |
 | `replace_icon_color.py` | 🎨 图标换色：绿→蓝，纯 Pillow，无 numpy |
 
-就三个文件，没有框架，没有配置文件，clone 下来直接跑。
+四个文件，没有框架，没有额外配置，clone 下来直接跑。
 
 ---
 
@@ -177,7 +178,13 @@ sudo ./create-wechat-dual.sh
 
 <details>
 <summary><b>图标没变色？</b></summary>
-脚本会自动检测并安装 Pillow。如果自动安装失败，手动执行 <code>pip3 install Pillow</code>，再重新运行主脚本即可。
+脚本会自动检测并安装 Pillow。如果自动安装失败，手动执行 <code>pip3 install Pillow</code>，再重新运行主脚本即可。<br>
+微信 4.x 的图标同时存在于 <code>AppIcon.icns</code> 和 <code>Assets.car</code>，系统优先读取后者，脚本会一并重建；若系统仍显示旧图标，运行 <code>./check-wechat-dual.sh</code> 确认。
+</details>
+
+<details>
+<summary><b>启动台里有多个"微信"？</b></summary>
+反复创建双开会在启动台数据库留下重复记录。主脚本会自动清理，重跑一次 <code>sudo ./create-wechat-dual.sh</code> 即可。
 </details>
 
 <details>
